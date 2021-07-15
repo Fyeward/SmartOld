@@ -9,7 +9,7 @@
 import datetime
 import argparse
 import json
-
+from corpwechatbot.app import AppMsgSender
 import requests as requests
 
 f = open('allowinsertdatabase.txt','r')
@@ -51,6 +51,11 @@ if allow == '1': # 如果允许插入
                'elder_name':old_people_id}
     
     print(payload)
+    app = AppMsgSender(corpid='wwf8ccb05feff6e329',  # 你的企业id
+                       corpsecret='nbmGEeBYIbuuSMNGNakovnjhq0-QkkG7PHdjMVVX_4w',  # 你的应用凭证密钥
+                       agentid='1000002')  # 你的应用id
+    app.send_text(content=payload["event_location"] + payload["event_desc"])
+    print("有人摔倒")
     r = requests.post("http://47.102.213.152:8080/EventManage/addEvent", data=json.dumps(payload),headers={'content-type': "application/json"})
     print(r.text)
     print(r.status_code)

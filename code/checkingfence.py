@@ -21,34 +21,38 @@ import dlib
 import cv2
 import os
 import subprocess
+import argparse
+from flask import Flask, render_template, Response, request
+from oldcare.camera import VideoCamera
+
 
 # 得到当前时间
 current_time = time.strftime('%Y-%m-%d %H:%M:%S',
                              time.localtime(time.time()))
 print('[INFO] %s 禁止区域检测程序启动了.'%(current_time))
 
-# 传入参数
-ap = argparse.ArgumentParser()
-ap.add_argument("-f", "--filename", required=False, default = '',
-	help="")
-args = vars(ap.parse_args())
+# # 传入参数
+# ap = argparse.ArgumentParser()
+# ap.add_argument("-f", "--filename", required=False, default = '',
+# 	help="")
+# args = vars(ap.parse_args())
 
 # 全局变量
+global prototxt_file_path,model_file_path,output_fence_path,input_video,skip_frames,python_path,minimum_confidence,CLASSES,net,W,H,vs
 prototxt_file_path='../models/mobilenet_ssd/MobileNetSSD_deploy.prototxt'
 # Contains the Caffe deep learning model files. 
 #We’ll be using a MobileNet Single Shot Detector (SSD), 
 #“Single Shot Detectors for object detection”.
 model_file_path='../models/mobilenet_ssd/MobileNetSSD_deploy.caffemodel'
 output_fence_path = 'supervision/fence'
-input_video = args['filename']
+input_video = None
 skip_frames = 30 # of skip frames between detections
 # your python path
-python_path = '/home/reed/anaconda3/envs/tensorflow/bin/python' 
+python_path = '/home/reed/anaconda3/envs/tensorflow/bin/python'
 
 # 超参数
 # minimum probability to filter weak detections
 minimum_confidence = 0.80 
-
 
 # 物体识别模型能识别的物体（21种）
 CLASSES = ["background", "aeroplane", "bicycle", "bird", "boat",
@@ -58,17 +62,18 @@ CLASSES = ["background", "aeroplane", "bicycle", "bird", "boat",
            "tvmonitor"]
 
 # if a video path was not supplied, grab a reference to the webcam
-if not input_video:
-	print("[INFO] starting video stream...")
-	vs = cv2.VideoCapture(0)
-	time.sleep(2)
-else:
-	print("[INFO] opening video file...")
-	vs = cv2.VideoCapture(input_video)
-    
+# if not input_video:
+# 	print("[INFO] starting video stream...")
+# 	vs = cv2.VideoCapture(0)
+# 	time.sleep(2)
+# else:
+# 	print("[INFO] opening video file...")
+# 	vs = cv2.VideoCapture(input_video)
+#
 # 加载物体识别模型
 print("[INFO] loading model...")
 net = cv2.dnn.readNetFromCaffe(prototxt_file_path, model_file_path)
+vs = cv2.VideoCapture(0)
 
 
 
@@ -77,6 +82,7 @@ net = cv2.dnn.readNetFromCaffe(prototxt_file_path, model_file_path)
 W = None
 H = None
 
+global ct,trackers,trackableObjects,totalFrames,totalDown,totalUp,fps
 # instantiate our centroid tracker, then initialize a list to store
 # each of our dlib correlation trackers, followed by a dictionary to
 # map each unique object ID to a TrackableObject
@@ -94,19 +100,16 @@ totalUp = 0
 fps = FPS().start()
 
 # loop over frames from the video stream
-while True:
+def checkfence(frame1):
+	global prototxt_file_path, model_file_path, output_fence_path, input_video, skip_frames, python_path, minimum_confidence, CLASSES, net, W, H
+	global ct, trackers, trackableObjects, totalFrames, totalDown, totalUp, fps
 	# grab the next frame and handle if we are reading from either
 	# VideoCapture or VideoStream
-	ret, frame = vs.read()
-
+	frame = cv2.flip(frame1, 1)
 	# if we are viewing a video and we did not grab a frame then we
 	# have reached the end of the video
-	if input_video and not ret:
-		break
-    
-	if not input_video:
-		frame = cv2.flip(frame, 1)
-        
+	if input_video :
+		return None
 	# resize the frame to have a maximum width of 500 pixels (the
 	# less data we have, the faster we can process it), then convert
 	# the frame from BGR to RGB for dlib
@@ -188,7 +191,7 @@ while True:
 			endX = int(pos.right())
 			endY = int(pos.bottom())
             
-            # draw a rectangle around the people
+			# draw a rectangle around the people
 			cv2.rectangle(frame, (startX, startY), (endX, endY),
 				(0, 255, 0), 2)
             
@@ -198,7 +201,7 @@ while True:
 	
     
     
-    # draw a horizontal line in the center of the frame -- once an
+	# draw a horizontal line in the center of the frame -- once an
 	# object crosses this line we will determine whether they were
 	# moving 'up' or 'down'
 	cv2.line(frame, (0, H // 2), (W, H // 2), (0, 255, 255), 2)
@@ -281,24 +284,90 @@ while True:
 			cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
 
 	# show the output frame
-	cv2.imshow("Prohibited Area", frame)
-    
-	k = cv2.waitKey(1) & 0xff 
-	if k == 27:
-		break
+	# cv2.imshow("Prohibited Area", frame)
+
+	totalFrames += 1
+	fps.update()
+	fps.stop()
+	print("[INFO] elapsed time: {:.2f}".format(fps.elapsed())) # 14.19
+	print("[INFO] approx. FPS: {:.2f}".format(fps.fps())) # 90.43
+	ret, jpeg = cv2.imencode('.jpg', frame)
+	return jpeg.tobytes()
+	# k = cv2.waitKey(1) & 0xff
+	# if k == 27:
+	# 	break
 
 	# increment the total number of frames processed thus far and
 	# then update the FPS counter
-	totalFrames += 1
-	fps.update()
+
 
 # stop the timer and display FPS information
-fps.stop()
-print("[INFO] elapsed time: {:.2f}".format(fps.elapsed())) # 14.19
-print("[INFO] approx. FPS: {:.2f}".format(fps.fps())) # 90.43
 
-# close any open windows
-vs.release()
-cv2.destroyAllWindows()
+
+# # close any open windows
+# vs.release()
+# cv2.destroyAllWindows()
+
+global location
+location = 'yard'
+
+
+# API
+app = Flask(__name__)
+
+video_camera = None
+global_frame = None
+
+
+@app.route('/')
+def index():
+	return render_template(location + '_camera.html')
+
+
+@app.route('/record_status', methods=['POST'])
+def record_status():
+	global video_camera
+	if video_camera == None:
+		video_camera = VideoCamera()
+
+	status = request.form.get('status')
+	save_video_path = request.form.get('save_video_path')
+
+	if status == "true":
+		video_camera.start_record(save_video_path)
+		return 'start record'
+	else:
+		video_camera.stop_record()
+		return 'stop record'
+
+
+def video_stream():
+	global video_camera
+	global global_frame
+	# if video_camera is None:
+	# 	video_camera = VideoCamera()
+
+	while True:
+		ret, frame = vs.read()
+		frame = cv2.flip(frame, 1)
+		frame = checkfence(frame)
+
+		if frame is not None:
+			global_frame = frame
+			yield (b'--frame\r\n'
+				   b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n\r\n')
+		else:
+			yield (b'--frame\r\n'
+				   b'Content-Type: image/jpeg\r\n\r\n' + global_frame + b'\r\n\r\n')
+
+
+@app.route('/video_viewer')
+def video_viewer():
+	return Response(video_stream(),
+					mimetype='multipart/x-mixed-replace; boundary=frame')
+
+
+if __name__ == '__main__':
+	app.run(host='0.0.0.0', threaded=True, port=5003)
 
 
