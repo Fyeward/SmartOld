@@ -56,7 +56,7 @@ def insert():
     
 if __name__ == '__main__':
     par = argparse.ArgumentParser(description='Human Fall Detection Demo.')
-    par.add_argument('-C', '--camera', required=True,  #default=2,
+    par.add_argument('-C', '--camera', default="/mnt/hgfs/SmartOld/code/checkingfall/duel2.avi",  #default=2,
                         help='Source of camera or video file path.')
     par.add_argument('--detection_input_size', type=int, default=384,
                         help='Size of input in detection model in square must be divisible by 32 (int).')
